@@ -24,20 +24,27 @@ float I1 = 0;
 float Ioffset = - (adcI2 - adcI1) / (I2 - I1) * I1 + adcI1;
 float Igain = I2 / (adcI2 - Ioffset);
 
+  float maxPower = 0;
+  float maxCurrent = 0;
+  float maxVoltage = 0;
+
+  float minPower = 9999;
+  float minCurrent = 999;
+  float minVoltage = 9.9;
+  
+const int nBoxcar = 50;
+float powerArray[nBoxcar];
+char outString[21];
 
 void setup() {
   Serial.begin(9600);
-  lcd.begin(16,1);
+  lcd.begin(20,4);
   Serial.println("DC Power Meter");
 }
 
 void loop() {
-  /*
-  // i want these both as static but the compiler won't let me
-  unsigned long lastTime = 0;
-  unsigned long thisTime = millis();
-  */
-  
+  static int i = 0;
+
   // figure out how to get current and previous sample times
   int dacA0 = analogRead(voltagePin);
   int dacA1 = analogRead(currentPin);
@@ -46,7 +53,25 @@ void loop() {
   float current = (dacA1 - Ioffset) * Igain;
 
   power = voltage * current;
-  
+
+  if (++i == nBoxcar) i = 0;
+  powerArray[i] = power;
+  float avgPower = 0;
+  for (int j=0; j < nBoxcar; j++) {
+    avgPower += powerArray[j] / nBoxcar;
+  }
+
+
+
+  // set maximums
+  if (power > maxPower)       maxPower = power;
+  if (current > maxCurrent) maxCurrent = current;
+  if (voltage > maxVoltage) maxVoltage = voltage;
+
+  if (power   < minPower)     minPower = power;
+  if (current < minCurrent) minCurrent = current;
+  if (voltage < minVoltage) minVoltage = voltage;
+
   // output to serial
   Serial.print(millis());
   Serial.print(", ");
@@ -60,26 +85,84 @@ void loop() {
   Serial.print(", ");
   Serial.print(dacA1, DEC);
   Serial.println();
-  
 
   // output to LCD
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print(voltage, 1);
-  lcd.print("V ");
-  lcd.print(current, 0);
-  lcd.print("mA ");
-  lcd.print(power, 0);
-  lcd.print("mW");
-
-  /*
-  float energyAccumulated = power * (thisTime - lastTime) / 1000;
-  float averagePower = energyAccumulated / millis() * 1000;
-  lastTime = thisTime;
-  */
+  //lcd.clear();
   
+  // first LCD line
+  lcd.setCursor(0, 0);
+  int index = 0;
+  placeDigitsInArray(outString, &index, voltage, 4, 1);
+  outString[index++] = 'V'; 
+  placeDigitsInArray(outString, &index, current, 4, 0);
+  outString[index++] = 'm';
+  outString[index++] = 'A'; 
+  placeDigitsInArray(outString, &index, power, 5, 0); 
+  outString[index++] = 'm';
+  outString[index++] = 'W'; 
+  outString[index++] = 0;
+  lcd.print(outString);
+  
+  // average values on second LCD line
+  lcd.setCursor(0, 1);
+  index = 0;
+  outString[index++] = 'a'; 
+  outString[index++] = 'v';
+  placeDigitsInArray(outString, &index, 0.0, 2, 1);
+  placeDigitsInArray(outString, &index, 0.0, 5, 0);
+  placeDigitsInArray(outString, &index, avgPower, 7, 0);
+  outString[index++] = 0;
+  lcd.print(outString);
+
+  // maximum values on LCD
+  lcd.setCursor(0, 2);
+  index = 0;
+  outString[index++] = 'm'; 
+  outString[index++] = 'x';
+  placeDigitsInArray(outString, &index, maxVoltage, 2, 1);
+  placeDigitsInArray(outString, &index, maxCurrent, 5, 0);
+  placeDigitsInArray(outString, &index, maxPower, 7, 0);
+  outString[index++] = 0;
+  lcd.print(outString);
+
+  // minimum values on LCD
+  lcd.setCursor(0, 3);
+  index = 0;
+  outString[index++] = 'm'; 
+  outString[index++] = 'n';
+  placeDigitsInArray(outString, &index, minVoltage, 2, 1);
+  placeDigitsInArray(outString, &index, minCurrent, 5, 0);
+  placeDigitsInArray(outString, &index, minPower, 7, 0);
+  outString[index++] = 0;
+  lcd.print(outString);
+
   delay(200);
 }
 
-// todo - add accumulator for average power
-// todo - add larger lcd display
+
+void placeDigitsInArray(char * outString, 
+                        int * index,
+                        float value, 
+                        int d, 
+                        int p){
+  // places value in outstring formatted with d characters and p precision
+  // no attempts at rounding
+  for (int i=d;i>0;i--) {
+    int digit = (int)(value / pow(10, i-1));
+    value = value - digit * pow(10, i-1);
+    if (digit == 0){
+      outString[(*index)++] = ' ';
+    } else {
+      outString[(*index)++] = digit + 0x30;
+    }
+  }
+  if (p > 0) {
+    outString[(*index)++] = '.';
+    for (int i = 0; i < p; i++) {
+      int digit = (int)(value * 10);
+      value = value*10 - digit;
+      outString[(*index)++] = digit + 0x30;
+    }
+  }
+}
+
